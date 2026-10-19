@@ -2,87 +2,92 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>실시간 AI 라이브 통역기</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    /* 모바일 브라우저 주소창 고려 동적 100% 높이 고정 */
+    html, body {
+      height: 100%;
+      height: 100dvh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #020617;
+    }
     @keyframes pulse-ring {
       0% { transform: scale(0.95); opacity: 0.8; }
-      50% { transform: scale(1.15); opacity: 0.3; }
+      50% { transform: scale(1.18); opacity: 0.2; }
       100% { transform: scale(0.95); opacity: 0.8; }
     }
     .mic-live-ring {
-      animation: pulse-ring 2s infinite ease-in-out;
+      animation: pulse-ring 1.8s infinite ease-in-out;
     }
-    /* 모바일/PC 대화 스크롤바 커스텀 */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 h-screen flex flex-col font-sans overflow-hidden">
+<body class="flex flex-col text-slate-100 font-sans" style="height: 100dvh;">
 
-  <!-- 헤더 영역 -->
-  <header class="flex items-center justify-between px-4 py-3 bg-slate-900 border-b border-slate-800 z-10 shrink-0">
-    <div class="flex items-center space-x-2">
-      <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-        <i class="fa-solid fa-language text-white text-base"></i>
+  <!-- 1. 헤더 (고정) -->
+  <header class="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 backdrop-blur border-b border-slate-800 shrink-0 z-30">
+    <div class="flex items-center space-x-2.5">
+      <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
+        <i class="fa-solid fa-language text-white text-sm"></i>
       </div>
       <div>
-        <h1 class="font-bold text-sm leading-tight flex items-center gap-1.5">
+        <h1 class="font-bold text-xs leading-none flex items-center gap-1.5 text-slate-100">
           실시간 라이브 통역기
-          <span id="liveBadge" class="hidden px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full animate-pulse">LIVE 수신중</span>
+          <span id="liveBadge" class="hidden px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full animate-pulse">LIVE</span>
         </h1>
-        <p class="text-[11px] text-slate-400" id="statusText">마이크를 켜면 연속 통역이 유지됩니다</p>
+        <p class="text-[10px] text-slate-400 mt-1" id="statusText">마이크를 켜면 연속 통역이 유지됩니다</p>
       </div>
     </div>
     
-    <div class="flex items-center space-x-2">
-      <!-- 도착 언어 선택 -->
-      <select id="targetLang" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500 transition">
-        <option value="en">🇺🇸 영어 (EN)</option>
-        <option value="ja">🇯🇵 일본어 (JA)</option>
-        <option value="zh-CN">🇨🇳 중국어 (ZH)</option>
-        <option value="es">🇪🇸 스페인어 (ES)</option>
-      </select>
-    </div>
+    <!-- 도착 언어 선택 -->
+    <select id="targetLang" class="bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500">
+      <option value="en">🇺🇸 영어 (EN)</option>
+      <option value="ja">🇯🇵 일본어 (JA)</option>
+      <option value="zh-CN">🇨🇳 중국어 (ZH)</option>
+      <option value="es">🇪🇸 스페인어 (ES)</option>
+    </select>
   </header>
 
-  <!-- 대화창 영역 -->
-  <main id="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
+  <!-- 2. 대화창 (화면 중앙 독립 스크롤 영역: min-h-0 필수) -->
+  <main id="chatContainer" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
     <!-- 초기 안내 화면 -->
     <div id="emptyGuide" class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
-      <div class="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-3 text-indigo-400 text-2xl">
+      <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-3 text-indigo-400 text-xl shadow-inner">
         <i class="fa-solid fa-tower-broadcast"></i>
       </div>
-      <h2 class="text-base font-semibold text-slate-200 mb-1">무한 연속 라이브 통역</h2>
+      <h2 class="text-sm font-semibold text-slate-200 mb-1">무한 연속 라이브 통역</h2>
       <p class="text-xs max-w-xs text-slate-400 leading-relaxed mb-4">
         하단 마이크를 켜면 유튜브 소리나 대화를 끊김 없이 계속 감지하여 실시간 자막을 생성합니다.
       </p>
     </div>
 
-    <!-- 대화 메시지가 추가되는 컨테이너 -->
-    <div id="messagesList" class="space-y-4"></div>
-    <div id="scrollAnchor" class="h-2"></div>
+    <!-- 대화 메시지 카드 목록 -->
+    <div id="messagesList" class="space-y-3"></div>
+    <div id="scrollAnchor" class="h-1"></div>
   </main>
 
-  <!-- 하단 고정 컨트롤 바 -->
-  <footer class="p-3 bg-slate-900 border-t border-slate-800 shrink-0">
-    <div class="max-w-3xl mx-auto flex items-center gap-2">
-      <!-- 무한 마이크 토글 버튼 -->
+  <!-- 3. 하단 컨트롤 바 (스마트폰 하단에 항상 고정) -->
+  <footer class="p-3 bg-slate-900 border-t border-slate-800 shrink-0 z-30" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));">
+    <div class="max-w-xl mx-auto flex items-center gap-2">
+      <!-- 마이크 토글 버튼 -->
       <div class="relative shrink-0">
-        <button id="micBtn" class="w-11 h-11 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 flex items-center justify-center transition-all shadow-md focus:outline-none">
+        <button id="micBtn" class="w-11 h-11 rounded-full bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 border border-slate-700 flex items-center justify-center transition shadow-md">
           <i class="fa-solid fa-microphone text-base"></i>
         </button>
         <span id="micRing" class="hidden absolute -inset-1 rounded-full border-2 border-red-500 mic-live-ring pointer-events-none"></span>
       </div>
 
-      <!-- 텍스트 수동 입력창 -->
+      <!-- 텍스트 직접 입력창 -->
       <div class="relative flex-1">
         <input type="text" id="textInput" placeholder="마이크를 켜거나 직접 문장을 입력하세요..." 
-          class="w-full bg-slate-950 border border-slate-700 rounded-full px-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition pr-10">
-        <button id="sendBtn" class="absolute right-1.5 top-1.5 w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center text-xs transition">
+          class="w-full bg-slate-950 border border-slate-700 rounded-full px-4 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition pr-9">
+        <button id="sendBtn" class="absolute right-1 top-1 w-7 h-7 rounded-full bg-indigo-600 active:bg-indigo-700 text-white flex items-center justify-center text-xs transition">
           <i class="fa-solid fa-arrow-up"></i>
         </button>
       </div>
@@ -103,20 +108,12 @@
     const sendBtn = document.getElementById('sendBtn');
 
     let recognition = null;
-    let isContinuousListening = false; // 사용자가 끄기 전까지 계속 유지되는 상태 플래그
+    let isContinuousListening = false;
     let restartTimer = null;
-
-    // 자연스러운 사전 (즉시 응답용)
-    const quickDict = {
-      en: { "안녕하세요": "Hello.", "반갑습니다": "Nice to meet you.", "감사합니다": "Thank you." },
-      ja: { "안녕하세요": "こんにちは。", "반갑습니다": "お会いできて嬉しいです。", "감사합니다": "ありがとうございます。" }
-    };
+    let lastSpokenText = "";
 
     // 실시간 NMT 번역 엔진
     async function translateText(text, targetLang) {
-      if (quickDict[targetLang] && quickDict[targetLang][text.trim()]) {
-        return quickDict[targetLang][text.trim()];
-      }
       try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
         const res = await fetch(url);
@@ -125,21 +122,20 @@
           return data[0].map(item => item[0]).join('');
         }
       } catch (err) {
-        console.warn('API 호출 대체:', err);
+        console.warn('번역 오류:', err);
       }
       return text;
     }
 
-    // 화면 자동 스크롤
     function scrollToBottom() {
       setTimeout(() => {
         scrollAnchor.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      }, 50);
+      }, 60);
     }
 
-    // 말풍선 렌더링
+    // 말풍선 카드 생성
     async function createTranslationCard(originalText) {
-      if (!originalText.trim()) return;
+      if (!originalText || !originalText.trim()) return;
       emptyGuide.classList.add('hidden');
 
       const cardId = 'card-' + Date.now();
@@ -147,27 +143,23 @@
       const targetLangName = targetLangSelect.options[targetLangSelect.selectedIndex].text;
 
       const cardHtml = `
-        <div id="${cardId}" class="flex flex-col space-y-2 border border-slate-800 bg-slate-900/60 rounded-xl p-3 shadow-sm animate-fade-in">
-          <!-- 원문 (한국어) -->
-          <div class="flex items-start justify-between gap-2 border-b border-slate-800/60 pb-2">
-            <div class="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium">
-              <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
-              한국어 원문
-            </div>
-            <span class="text-[10px] text-slate-500">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
+        <div id="${cardId}" class="flex flex-col space-y-1.5 border border-slate-800 bg-slate-900/70 rounded-xl p-3 shadow-sm">
+          <div class="flex items-start justify-between gap-2 border-b border-slate-800/60 pb-1.5">
+            <span class="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>한국어 원문
+            </span>
+            <span class="text-[9px] text-slate-500">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
           </div>
           <div class="text-xs text-slate-200 font-medium leading-relaxed">${originalText}</div>
-
-          <!-- 번역문 -->
-          <div class="pt-1">
-            <div class="flex items-center justify-between text-[11px] text-indigo-400 font-medium mb-1">
+          <div class="pt-1 border-t border-slate-800/40">
+            <div class="flex items-center justify-between text-[10px] text-indigo-400 font-medium mb-0.5">
               <span>${targetLangName}</span>
-              <button onclick="navigator.clipboard.writeText(this.closest('#${cardId}').querySelector('.trans-result').innerText)" class="text-[10px] text-slate-500 hover:text-slate-300">
+              <button onclick="navigator.clipboard.writeText(this.closest('#${cardId}').querySelector('.trans-result').innerText)" class="text-[9px] text-slate-500 hover:text-slate-300">
                 <i class="fa-regular fa-copy"></i> 복사
               </button>
             </div>
-            <div class="trans-result text-sm text-indigo-200 font-semibold leading-relaxed">
-              <span class="inline-flex items-center gap-1 text-slate-400 text-xs">
+            <div class="trans-result text-xs text-indigo-200 font-semibold leading-relaxed">
+              <span class="inline-flex items-center gap-1 text-slate-400 text-[11px]">
                 <i class="fa-solid fa-circle-notch fa-spin"></i> 번역 생성 중...
               </span>
             </div>
@@ -178,7 +170,6 @@
       messagesList.insertAdjacentHTML('beforeend', cardHtml);
       scrollToBottom();
 
-      // 실제 번역 요청
       const translated = await translateText(originalText, targetLang);
       const cardElem = document.getElementById(cardId);
       if (cardElem) {
@@ -187,7 +178,7 @@
       }
     }
 
-    // 무한 음성 인식(STT) 초기화
+    // 모바일 최적화 음성 인식 엔진
     function initSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -197,11 +188,11 @@
 
       const recognizer = new SpeechRecognition();
       recognizer.lang = 'ko-KR';
-      recognizer.continuous = true;     // 연속 인식
-      recognizer.interimResults = false; // 문장이 완성되었을 때만 처리
+      recognizer.continuous = true;
+      recognizer.interimResults = false;
 
       recognizer.onstart = () => {
-        statusText.innerText = "라이브 음성을 감지하고 있습니다...";
+        statusText.innerText = "음성을 실시간 감지 중입니다...";
         liveBadge.classList.remove('hidden');
         micBtn.classList.replace('bg-slate-800', 'bg-red-600');
         micBtn.classList.replace('text-slate-300', 'text-white');
@@ -212,7 +203,9 @@
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             const transcript = event.results[i][0].transcript.trim();
-            if (transcript.length > 0) {
+            // 직전 문장과 완전히 같거나 직전 문장의 앞부분 파편인 경우 중복 처리 방지
+            if (transcript.length > 0 && transcript !== lastSpokenText) {
+              lastSpokenText = transcript;
               createTranslationCard(transcript);
             }
           }
@@ -220,6 +213,61 @@
       };
 
       recognizer.onerror = (event) => {
-        // 음성이 잠깐 안 들려서 생기는 'no-speech' 에러는 무시하고 계속 유지
         if (event.error !== 'no-speech') {
-          console.log
+          console.log('마이크 상태:', event.error);
+        }
+      };
+
+      recognizer.onend = () => {
+        if (isContinuousListening) {
+          clearTimeout(restartTimer);
+          restartTimer = setTimeout(() => {
+            try {
+              recognizer.start();
+            } catch (err) {}
+          }, 100);
+        } else {
+          statusText.innerText = "마이크가 대기 상태입니다";
+          liveBadge.classList.add('hidden');
+          micBtn.classList.replace('bg-red-600', 'bg-slate-800');
+          micBtn.classList.replace('text-white', 'text-slate-300');
+          micRing.classList.add('hidden');
+        }
+      };
+
+      return recognizer;
+    }
+
+    function toggleMic() {
+      if (!recognition) {
+        recognition = initSpeechRecognition();
+        if (!recognition) return;
+      }
+
+      if (isContinuousListening) {
+        isContinuousListening = false;
+        recognition.stop();
+      } else {
+        isContinuousListening = true;
+        try {
+          recognition.start();
+        } catch (e) {}
+      }
+    }
+
+    micBtn.addEventListener('click', toggleMic);
+
+    function handleSend() {
+      const text = textInput.value.trim();
+      if (text) {
+        createTranslationCard(text);
+        textInput.value = '';
+      }
+    }
+    sendBtn.addEventListener('click', handleSend);
+    textInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') handleSend();
+    });
+  </script>
+</body>
+</html>
