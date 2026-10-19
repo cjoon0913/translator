@@ -29,7 +29,7 @@
 </head>
 <body class="flex flex-col text-slate-100 font-sans" style="height: 100dvh;">
 
-  <!-- 헤더 영역 -->
+  <!-- 1. 헤더 영역 -->
   <header class="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 backdrop-blur border-b border-slate-800 shrink-0 z-30">
     <div class="flex items-center space-x-2.5">
       <div class="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
@@ -40,7 +40,7 @@
           실시간 라이브 통역기
           <span id="liveBadge" class="hidden px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 rounded-full animate-pulse">LIVE</span>
         </h1>
-        <p class="text-[10px] text-slate-400 mt-1" id="statusText">마이크를 켜면 긴 문장도 알아서 분할 번역합니다</p>
+        <p class="text-[10px] text-slate-400 mt-1" id="statusText">마이크를 켜면 라이브 통역이 시작됩니다</p>
       </div>
     </div>
     
@@ -53,35 +53,25 @@
     </select>
   </header>
 
-  <!-- 대화창 영역 -->
+  <!-- 2. 대화창 영역 -->
   <main id="chatContainer" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
     <!-- 초기 안내 화면 -->
     <div id="emptyGuide" class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
       <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-3 text-indigo-400 text-xl shadow-inner">
         <i class="fa-solid fa-tower-broadcast"></i>
       </div>
-      <h2 class="text-sm font-semibold text-slate-200 mb-1">스마트 실시간 연속 통역</h2>
+      <h2 class="text-sm font-semibold text-slate-200 mb-1">실시간 라이브 자막 통역</h2>
       <p class="text-xs max-w-xs text-slate-400 leading-relaxed mb-4">
-        긴 문장을 자연스러운 절 단위로 끊어 실시간 자막을 생성합니다.
+        유튜브 방송이나 대화를 실시간으로 감지하여 문장 단위로 깔끔하게 정리하여 통역합니다.
       </p>
     </div>
 
-    <!-- 번역 완료 카드 목록 -->
+    <!-- 카드 목록 -->
     <div id="messagesList" class="space-y-3"></div>
-
-    <!-- 실시간 타이핑 프리뷰 카드 (말하는 도중 임시 표시) -->
-    <div id="liveStreamCard" class="hidden border border-indigo-500/30 bg-indigo-950/20 rounded-xl p-3 shadow-sm">
-      <div class="flex items-center gap-1.5 text-[10px] text-indigo-400 font-medium mb-1">
-        <span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-ping"></span>
-        <span>실시간 인식 중...</span>
-      </div>
-      <div id="liveStreamText" class="text-xs text-indigo-100 font-medium leading-relaxed italic"></div>
-    </div>
-
     <div id="scrollAnchor" class="h-1"></div>
   </main>
 
-  <!-- 하단 고정 컨트롤 바 -->
+  <!-- 3. 하단 고정 컨트롤 바 -->
   <footer class="p-3 bg-slate-900 border-t border-slate-800 shrink-0 z-30" style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));">
     <div class="max-w-xl mx-auto flex items-center gap-2">
       <!-- 마이크 토글 버튼 -->
@@ -108,8 +98,6 @@
     const messagesList = document.getElementById('messagesList');
     const emptyGuide = document.getElementById('emptyGuide');
     const scrollAnchor = document.getElementById('scrollAnchor');
-    const liveStreamCard = document.getElementById('liveStreamCard');
-    const liveStreamText = document.getElementById('liveStreamText');
     const micBtn = document.getElementById('micBtn');
     const micRing = document.getElementById('micRing');
     const statusText = document.getElementById('statusText');
@@ -121,14 +109,18 @@
     let recognition = null;
     let isContinuousListening = false;
     let restartTimer = null;
+
+    // 실시간 제자리 업데이트 & 확정 제어 변수
+    let activeCardId = null;
+    let activeKoreanText = "";
     let silenceTimer = null;
+    let translateDebounceTimer = null;
+    let lastCommittedKorean = "";
+    const SILENCE_COMMIT_MS = 1600; // 1.6초 동안 추가 음성이 없으면 문장 확정 완료
 
-    // 실시간 음성 분할 제어 변수
-    let currentResultIndex = -1;
-    let dispatchedCharCount = 0;
-
-    // NMT 신경망 번역 API 호출
+    // 실시간 NMT 번역 엔진
     async function translateText(text, targetLang) {
+      if (!text || !text.trim()) return '';
       try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ko&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
         const res = await fetch(url);
@@ -137,7 +129,7 @@
           return data[0].map(item => item[0]).join('');
         }
       } catch (err) {
-        console.warn('번역 API 오류:', err);
+        console.warn('번역 API 호출 실패:', err);
       }
       return text;
     }
@@ -148,48 +140,31 @@
       }, 50);
     }
 
-    // 실시간 프리뷰 카드 업데이트
-    function updateLivePreview(text) {
-      if (!text || text.trim().length === 0) {
-        liveStreamCard.classList.add('hidden');
-        liveStreamText.innerText = '';
-      } else {
-        emptyGuide.classList.add('hidden');
-        liveStreamCard.classList.remove('hidden');
-        liveStreamText.innerText = text;
-        scrollToBottom();
-      }
-    }
-
-    // 확정된 텍스트 카드 생성 및 번역 요청
-    async function createTranslationCard(originalText) {
-      const cleanText = originalText.trim();
-      if (!cleanText) return;
+    // 새 활성 카드 생성
+    function createActiveCard(initialText) {
       emptyGuide.classList.add('hidden');
-
-      const cardId = 'card-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-      const targetLang = targetLangSelect.value;
+      const cardId = 'card-' + Date.now();
       const targetLangName = targetLangSelect.options[targetLangSelect.selectedIndex].text;
 
       const cardHtml = `
-        <div id="${cardId}" class="flex flex-col space-y-1.5 border border-slate-800 bg-slate-900/80 rounded-xl p-3 shadow-sm">
-          <div class="flex items-start justify-between gap-2 border-b border-slate-800/60 pb-1.5">
-            <span class="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>한국어 원문
+        <div id="${cardId}" class="card-item flex flex-col space-y-1.5 border border-indigo-500/40 bg-slate-900/90 rounded-xl p-3 shadow-md transition-all">
+          <div class="flex items-start justify-between gap-2 border-b border-slate-800 pb-1.5">
+            <span class="text-[10px] text-indigo-400 font-medium flex items-center gap-1.5 status-label">
+              <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>실시간 수신 중...
             </span>
-            <span class="text-[9px] text-slate-500">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
+            <span class="text-[9px] text-slate-500 time-label">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
           </div>
-          <div class="text-xs text-slate-200 font-medium leading-relaxed">${cleanText}</div>
+          <div class="korean-text text-xs text-slate-100 font-medium leading-relaxed">${initialText}</div>
           <div class="pt-1 border-t border-slate-800/40">
             <div class="flex items-center justify-between text-[10px] text-indigo-400 font-medium mb-0.5">
               <span>${targetLangName}</span>
-              <button onclick="navigator.clipboard.writeText(this.closest('#${cardId}').querySelector('.trans-result').innerText)" class="text-[9px] text-slate-500 hover:text-slate-300">
+              <button onclick="navigator.clipboard.writeText(this.closest('.card-item').querySelector('.trans-result').innerText)" class="text-[9px] text-slate-500 hover:text-slate-300">
                 <i class="fa-regular fa-copy"></i> 복사
               </button>
             </div>
             <div class="trans-result text-xs text-indigo-200 font-semibold leading-relaxed">
               <span class="inline-flex items-center gap-1 text-slate-400 text-[11px]">
-                <i class="fa-solid fa-circle-notch fa-spin"></i> 번역 중...
+                <i class="fa-solid fa-circle-notch fa-spin"></i> 번역 준비 중...
               </span>
             </div>
           </div>
@@ -198,76 +173,112 @@
 
       messagesList.insertAdjacentHTML('beforeend', cardHtml);
       scrollToBottom();
+      return cardId;
+    }
 
-      const translated = await translateText(cleanText, targetLang);
+    // 기존 활성 카드 제자리 갱신 및 디바운스 번역
+    function updateActiveCard(cardId, newText) {
       const cardElem = document.getElementById(cardId);
+      if (!cardElem) return;
+
+      const korElem = cardElem.querySelector('.korean-text');
+      if (korElem) korElem.innerText = newText;
+      scrollToBottom();
+
+      // 말하는 도중 번역 API가 폭주하지 않도록 0.35초 디바운스 적용
+      clearTimeout(translateDebounceTimer);
+      translateDebounceTimer = setTimeout(async () => {
+        const targetLang = targetLangSelect.value;
+        const translated = await translateText(newText, targetLang);
+        const transElem = cardElem.querySelector('.trans-result');
+        if (transElem) {
+          transElem.innerText = translated;
+          scrollToBottom();
+        }
+      }, 350);
+    }
+
+    // 침묵 발생 시 카드 확정 (완료 처리)
+    async function commitActiveCard() {
+      if (!activeCardId) return;
+
+      const cardElem = document.getElementById(activeCardId);
       if (cardElem) {
-        cardElem.querySelector('.trans-result').innerText = translated;
-        scrollToBottom();
+        // 실시간 수신 배지 제거하고 고정된 원문 라벨로 변경
+        const statusLabel = cardElem.querySelector('.status-label');
+        if (statusLabel) {
+          statusLabel.className = 'text-[10px] text-slate-400 font-medium flex items-center gap-1';
+          statusLabel.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>한국어 원문';
+        }
+        cardElem.classList.replace('border-indigo-500/40', 'border-slate-800');
+        cardElem.classList.replace('bg-slate-900/90', 'bg-slate-900/70');
+
+        // 확정 시점에 최종 번역이 누락되지 않도록 1회 확실하게 재보장
+        const targetLang = targetLangSelect.value;
+        const translated = await translateText(activeKoreanText, targetLang);
+        const transElem = cardElem.querySelector('.trans-result');
+        if (transElem && translated) {
+          transElem.innerText = translated;
+        }
       }
+
+      lastCommittedKorean = activeKoreanText;
+      activeCardId = null;
+      activeKoreanText = "";
+      clearTimeout(silenceTimer);
     }
 
-    // 스마트 문장 분할 처리 엔진
-    function processSpeechChunk(fullTranscript, isFinal) {
-      let rawRemaining = fullTranscript.slice(dispatchedCharCount);
+    // 침묵 감지 타이머 재설정
+    function resetSilenceTimer() {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        commitActiveCard();
+      }, SILENCE_COMMIT_MS);
+    }
 
-      // 한국어 자연스러운 절 구분 정규식 (문장부호, 접속·연결 어미)
-      const clauseRegex = /([.?!,]|(?<=[가-힣]{2,})(?:고|며|는데|은데|ㄴ데|지만|으나|어서|아서|여서|므로|면서|으며|구요|고요|대요))\s+/;
+    // 수신된 음성 텍스트의 스마트 처리 (도배 방지 핵심 로직)
+    function handleIncomingSpeech(incomingText) {
+      const text = incomingText.trim();
+      if (!text || text.length <= 1) return;
 
-      let match;
-      while ((match = clauseRegex.exec(rawRemaining)) !== null) {
-        const breakEndPos = match.index + match[0].length;
-        const candidate = rawRemaining.slice(0, breakEndPos).trim();
+      // 직전에 이미 완료된 문장과 완전히 같거나 그 일부분이면 무시 (중복 이벤트 필터링)
+      if (text === lastCommittedKorean || (lastCommittedKorean && lastCommittedKorean.endsWith(text))) {
+        return;
+      }
 
-        // 12자 이상이거나 3단어 이상일 때 의미 있는 덩어리로 판단하여 분할
-        if (candidate.length >= 12 || candidate.split(/\s+/).length >= 3) {
-          createTranslationCard(candidate);
-          dispatchedCharCount += breakEndPos;
-          rawRemaining = fullTranscript.slice(dispatchedCharCount);
+      if (activeCardId) {
+        // 기존 텍스트의 확장("왜" -> "왜 다시" -> "왜 다시 금방")이거나 짧은 호흡 단위인 경우
+        const isExtension = text.startsWith(activeKoreanText) || text.includes(activeKoreanText) || activeKoreanText.startsWith(text);
+
+        if (isExtension || activeKoreanText.length < 12) {
+          // 문장이 지나치게 길어지고(40자 이상) 문장 끝맺음이 확인되면 즉시 확정 후 분리
+          const hasSentenceCloser = /[.?!]$\vert{}[가-힣]{2,}(?:다\vert{}요\vert{}죠\vert{}까\vert{}네)[.?!]?$/.test(text);
+          if (text.length >= 40 && hasSentenceCloser) {
+            activeKoreanText = text;
+            updateActiveCard(activeCardId, text);
+            commitActiveCard();
+            return;
+          }
+
+          // 기존 카드 제자리 업데이트
+          activeKoreanText = text;
+          updateActiveCard(activeCardId, text);
+          resetSilenceTimer();
+          return;
         } else {
-          break;
+          // 명확하게 다른 새로운 문장이 시작되었으면 이전 카드를 닫고 새 카드로 진입
+          commitActiveCard();
         }
       }
 
-      // 글자 수 임계치 분할 (부호 없이 35자 이상 길어질 경우 띄어쓰기 위치에서 강제 분할)
-      if (rawRemaining.trim().length >= 35) {
-        const lastSpace = rawRemaining.slice(0, 35).lastIndexOf(' ');
-        if (lastSpace >= 12) {
-          const chunk = rawRemaining.slice(0, lastSpace).trim();
-          createTranslationCard(chunk);
-          dispatchedCharCount += (lastSpace + 1);
-          rawRemaining = fullTranscript.slice(dispatchedCharCount);
-        }
-      }
-
-      const currentLive = rawRemaining.trim();
-
-      if (isFinal) {
-        clearTimeout(silenceTimer);
-        if (currentLive.length > 0) {
-          createTranslationCard(currentLive);
-        }
-        dispatchedCharCount = 0;
-        updateLivePreview('');
-      } else {
-        updateLivePreview(currentLive);
-
-        // 무음 감지 (1.1초 동안 새로운 어절이 없으면 현재 조각 즉시 번역 확정)
-        clearTimeout(silenceTimer);
-        if (currentLive.length >= 5) {
-          silenceTimer = setTimeout(() => {
-            const latestPending = fullTranscript.slice(dispatchedCharCount).trim();
-            if (latestPending.length > 0) {
-              createTranslationCard(latestPending);
-              dispatchedCharCount = fullTranscript.length;
-              updateLivePreview('');
-            }
-          }, 1100);
-        }
-      }
+      // 새 카드 시작
+      activeKoreanText = text;
+      activeCardId = createActiveCard(text);
+      updateActiveCard(activeCardId, text);
+      resetSilenceTimer();
     }
 
-    // 음성 인식 초기화 (interimResults: true 로 실시간 스트리밍 감지)
+    // 음성 인식 초기화
     function initSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -278,10 +289,10 @@
       const recognizer = new SpeechRecognition();
       recognizer.lang = 'ko-KR';
       recognizer.continuous = true;
-      recognizer.interimResults = true; // 실시간 발화 조각 수신
+      recognizer.interimResults = true;
 
       recognizer.onstart = () => {
-        statusText.innerText = "음성을 실시간 감지 중입니다...";
+        statusText.innerText = "라이브 음성을 감지 중입니다...";
         liveBadge.classList.remove('hidden');
         micBtn.classList.replace('bg-slate-800', 'bg-red-600');
         micBtn.classList.replace('text-slate-300', 'text-white');
@@ -289,14 +300,12 @@
       };
 
       recognizer.onresult = (event) => {
+        let transcript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (i !== currentResultIndex) {
-            currentResultIndex = i;
-            dispatchedCharCount = 0;
-          }
-          const isFinal = event.results[i].isFinal;
-          const fullTranscript = event.results[i][0].transcript;
-          processSpeechChunk(fullTranscript, isFinal);
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript.trim().length > 0) {
+          handleIncomingSpeech(transcript);
         }
       };
 
@@ -311,14 +320,14 @@
           clearTimeout(restartTimer);
           restartTimer = setTimeout(() => {
             try { recognizer.start(); } catch (err) {}
-          }, 100);
+          }, 120);
         } else {
+          commitActiveCard();
           statusText.innerText = "마이크가 대기 상태입니다";
           liveBadge.classList.add('hidden');
           micBtn.classList.replace('bg-red-600', 'bg-slate-800');
           micBtn.classList.replace('text-white', 'text-slate-300');
           micRing.classList.add('hidden');
-          updateLivePreview('');
         }
       };
 
@@ -334,26 +343,35 @@
       if (isContinuousListening) {
         isContinuousListening = false;
         recognition.stop();
-        updateLivePreview('');
+        commitActiveCard();
       } else {
         isContinuousListening = true;
-        currentResultIndex = -1;
-        dispatchedCharCount = 0;
         try { recognition.start(); } catch (e) {}
       }
     }
 
     micBtn.addEventListener('click', toggleMic);
 
-    // 텍스트 직접 입력 처리 (문장이 길면 줄바꿈/마침표 기준으로 분할 처리)
-    function handleSend() {
+    // 텍스트 직접 입력 처리
+    async function handleSend() {
       const text = textInput.value.trim();
       if (!text) return;
-
-      const sentences = text.split(/(?<=[.?!])\s+/);
-      sentences.forEach(s => {
-        if (s.trim()) createTranslationCard(s.trim());
-      });
+      commitActiveCard();
+      
+      const newId = createActiveCard(text);
+      const targetLang = targetLangSelect.value;
+      const trans = await translateText(text, targetLang);
+      const card = document.getElementById(newId);
+      if (card) {
+        card.querySelector('.trans-result').innerText = trans;
+        const statusLabel = card.querySelector('.status-label');
+        if (statusLabel) {
+          statusLabel.className = 'text-[10px] text-slate-400 font-medium flex items-center gap-1';
+          statusLabel.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span>한국어 원문';
+        }
+        card.classList.replace('border-indigo-500/40', 'border-slate-800');
+        card.classList.replace('bg-slate-900/90', 'bg-slate-900/70');
+      }
       textInput.value = '';
     }
 
